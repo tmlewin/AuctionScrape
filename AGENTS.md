@@ -141,35 +141,130 @@ Fields: title, external_id, agency, status, category, posted_at, closing_at, det
 
 | Component | File | Status | Notes |
 |-----------|------|--------|-------|
-| Crawl4AI adapter | `core/backends/crawl4ai_backend.py` | ✅ Works | 500+ lines, full LLM integration |
+| Crawl4AI adapter | `core/backends/crawl4ai_backend.py` | ✅ Works | 690+ lines, full LLM integration |
 | LLM extraction strategy | `crawl4ai_backend.py` | ✅ Works | Pydantic schema, auto field mapping |
 | Quick Mode CLI | `cli/commands/quick.py` | ✅ Works | `quick scrape`, `quick test`, `quick promote` |
 | Draft YAML generation | `crawl4ai_backend.py` | ✅ Works | Auto-generate configs from scrapes |
 | Markdown capture | `crawl4ai_backend.py` | ✅ Works | Built into Crawl4AI |
+| Content pruning | `crawl4ai_backend.py` | ✅ Works | PruningContentFilter for token reduction |
 
 #### M4 Features Implemented
 
 - **AI-Powered Extraction**: Uses LLM to understand page structure automatically
 - **No CSS Selectors Needed**: Works on ANY website without manual configuration
 - **OpportunitySchema**: Pydantic schema for structured extraction
-- **LLM Provider Support**: OpenAI, Ollama (local), Anthropic, Groq, etc.
+- **LLM Provider Support**: Groq (FREE), DeepSeek, OpenAI, Ollama (local), Anthropic, Gemini
+- **Content Pruning**: `PruningContentFilter` + `fit_markdown` to reduce token usage by 75%+
 - **Schema Caching**: Generate CSS schema once, reuse for free forever
 - **Quick Mode CLI**:
   - `quick scrape <url>` - Scrape any URL with AI
   - `quick test <url>` - Test extraction without saving
   - `quick promote <name>` - Convert quick scrape to full config
+  - `--provider groq/llama-3.3-70b-versatile` - Use Groq (FREE)
   - `--provider ollama/llama3.3` - Use local models (free)
   - `--save` - Save to database
   - `--generate-config` - Create reusable YAML config
 
-#### M4.5 Quick Mode ✅ COMPLETE
+#### M4 Test Results (Alberta Purchasing - 2026-02-02)
+
+```
+Provider: groq/llama-3.3-70b-versatile (FREE tier)
+URL: https://purchasing.alberta.ca/search
+
+Opportunities found: 9
+Extraction method: llm
+Confidence: 89.3%
+Time: 10.1s
+Cost: $0.00 (FREE)
+
+Sample extracted:
+1. REQUEST FOR PREQUALIFICATION OF GENERAL CONTRACTORS
+   ID: AB-2026-00868, Agency: Town of Fairview, Status: Open
+   Closes: Feb 19, 2026
+
+2. Group Purchasing Organization (GPO) / Consortium Participation
+   ID: AB-2026-00867, Agency: SAIT, Status: Open
+```
+
+#### M4.5 Quick Mode ✅ COMPLETE (Enhanced with Multi-Page)
 
 | Component | File | Status |
 |-----------|------|--------|
 | Quick CLI flow | `cli/commands/quick.py` | ✅ Works |
 | LLM schema inference | `crawl4ai_backend.py` | ✅ Works |
-| Pagination heuristics | Built into Crawl4AI | ✅ Works |
+| **Multi-page pagination** | `crawl4ai_backend.py` | ✅ **NEW** - Session-based, auto-detect |
+| **Pagination heuristics** | `crawl4ai_backend.py` | ✅ **NEW** - Next, Load More, Infinite Scroll |
+| **Deep scrape** | `crawl4ai_backend.py` | ✅ **NEW** - Follow detail_url links |
+| **Search/filter criteria** | `crawl4ai_backend.py` | ✅ **NEW** - Keywords, date range, categories |
+| **Rate limiting** | `crawl4ai_backend.py` | ✅ **NEW** - Delay, retries, backoff |
 | Draft YAML generation | `crawl4ai_backend.py` | ✅ Works |
+| Content pruning for free tiers | `crawl4ai_backend.py` | ✅ Works |
+
+#### M4.5 Multi-Page Features (NEW - 2026-02-02)
+
+**Pagination Detection & Traversal**:
+- Auto-detects pagination type from HTML
+- Click Next (20+ heuristic selectors)
+- Load More button
+- Infinite Scroll (scroll + wait)
+- URL parameter-based (planned)
+
+**Advanced Search/Filter Criteria**:
+- `--keywords "IT,construction"` - Filter by title/description
+- `--status open` - Filter by status
+- `--categories "services"` - Category filter
+- `--since 30` - Posted within N days
+- `--closing-within 14` - Closing within N days
+- `--min-value 10000` / `--max-value 1000000` - Value range
+- `--location "Alberta"` - Geographic filter
+
+**Deep Scrape**:
+- `--deep` - Follow detail_url links for full descriptions
+- `--max-details 50` - Limit detail page requests
+- Extracts: description, attachments, contact info, requirements
+
+**Rate Limiting & Error Handling**:
+- `--delay 2000` - Delay between pages (ms)
+- `--retries 3` - Max retry attempts
+- Exponential backoff on failures
+- `--stop-on-error` - Stop on first error
+
+**CLI Examples**:
+```bash
+# Multi-page with auto-pagination
+procurewatch quick scrape https://example.com --max-pages 10
+
+# With filters
+procurewatch quick scrape https://example.com -p 5 --keywords "IT,software" --status open
+
+# Deep scrape with full descriptions
+procurewatch quick scrape https://example.com --deep --max-details 50
+
+# Date filters
+procurewatch quick scrape https://example.com --since 30 --closing-within 14
+
+# Export + database
+procurewatch quick scrape https://example.com -p 10 -o results.json --save
+```
+
+**Configuration Model (QuickModeConfig)**:
+```python
+QuickModeConfig(
+    max_pages=10,
+    pagination_type=QuickPaginationType.AUTO,
+    follow_detail_pages=True,
+    max_detail_pages=50,
+    filters=QuickSearchFilter(
+        keywords=["IT", "construction"],
+        status=["open"],
+        since_days=30,
+        closing_within_days=14,
+    ),
+    delay_between_pages_ms=2000,
+    max_retries=3,
+    retry_backoff_factor=2.0,
+)
+```
 
 ### M5 — Export & Polish ❌ NOT STARTED
 
@@ -183,28 +278,81 @@ Fields: title, external_id, agency, status, category, posted_at, closing_at, det
 
 ## Current Session Context
 
-**Last worked on**: M4 - Crawl4AI Backend + Quick Mode
+**Last worked on**: M4.5 - Multi-Page Quick Mode Enhancements + Extraction Robustness
 
-**Status**: ✅ M4 COMPLETE
+**Date**: 2026-02-02
 
-**What was done**:
-- Installed crawl4ai v0.8.0 with all dependencies
-- Created `Crawl4AIBackend` with LLM-powered extraction
-- Created `OpportunitySchema` Pydantic model for structured extraction
-- Implemented Quick Mode CLI (`quick scrape`, `quick test`, `quick promote`)
-- Added automatic YAML config generation from successful scrapes
-- Registered quick command in main CLI
+**Status**: ✅ M4.5 COMPLETE (Multi-Page Quick Mode working)
 
-**Key Capability Unlocked**:
-- **Point at ANY URL → Get structured procurement data**
-- No CSS selectors needed - AI understands page structure
-- Works on any website without manual configuration
-- Supports multiple LLM providers (OpenAI, Ollama, Anthropic, etc.)
+**What was done this session**:
+1. Fixed pagination JS execution by using `current_url` instead of `about:blank`
+2. Fixed JS selector quoting when the selector contains single quotes
+3. Updated LLM extraction prompts to cover contracts/bids/awards (not just tenders)
+4. Reduced LLM chunk size to fit Groq free-tier token limits
+5. Added UTF-8 console handling in test scripts to avoid Windows Unicode crashes
+6. Wrote a full usage `README.md` with examples and troubleshooting
+7. Verified multi-page extraction on Alberta (2+ pages, ~88-90% confidence)
+8. Investigated Nevada ePro: data exists but dropdown menus bloat tokens; results section is ~5k tokens
+9. Proved direct markdown-table parsing can extract 25 Nevada contracts without LLM
 
-**Next action**: Test with real procurement sites, then M5 (Export & Polish)
-- Tested with Alberta Purchasing portal: 10 records, 0.967 confidence
+**Key Files Modified**:
+- `src/procurewatch/core/backends/crawl4ai_backend.py` - Pagination fixes, prompt generalized, chunk size reduced
+- `test_multipage.py` - UTF-8 console fix for Windows
+- `README.md` - Full usage guide
 
-**Next action**: M3 (Scheduler) or additional portal testing
+**New/Updated Test Scripts**:
+- `test_nevada.py` - Nevada ePro test with UTF-8 handling
+
+**New CLI Options**:
+```bash
+# Pagination
+--max-pages N, -p N       # Maximum pages to scrape
+--pagination TYPE         # auto, click_next, load_more, infinite_scroll, none
+--next-selector CSS       # Custom next button selector
+
+# Filters
+--keywords "a,b,c"        # Keyword filter
+--status STATUS           # Status filter
+--categories "a,b"        # Category filter
+--since N                 # Posted within N days
+--closing-within N        # Closing within N days
+--min-value N             # Minimum value
+--max-value N             # Maximum value
+--location LOC            # Location filter
+
+# Deep Scrape
+--deep / --no-deep        # Follow detail URLs
+--max-details N           # Max detail pages
+
+# Rate Limiting
+--delay MS                # Delay between pages
+--retries N               # Retry attempts
+--stop-on-error           # Stop on first error
+```
+
+**Environment Setup (.env)**:
+```env
+GROQ_API_KEY=gsk_xxx...  # FREE, working
+CRAWL4AI_LLM_PROVIDER=groq/llama-3.3-70b-versatile
+```
+
+**Working Test Command**:
+```bash
+python test_multipage.py  # Test multi-page extraction (UTF-8 safe)
+python test_nevada.py     # Nevada ePro test (UTF-8 safe)
+python test_groq.py       # Single-page test (bypasses Windows Unicode issues)
+```
+
+**Known Issues / Findings**:
+- Windows Rich progress spinners can crash the CLI with Unicode errors; test scripts include UTF-8 fixes
+- Nevada ePro results are behind large dropdown menus; raw markdown exceeds Groq free-tier limit
+- The results table is present and extractable; a targeted table/Results-section parser is a good fallback
+
+**Next Steps (User to decide)**:
+1. Implement results-table extraction fallback for dropdown-heavy pages (Nevada ePro)
+2. Fix Windows CLI Unicode crash in `procurewatch init`
+3. M5: Export & Polish (CSV/JSON export, dashboards)
+4. Add URL parameter-based pagination
 
 ---
 

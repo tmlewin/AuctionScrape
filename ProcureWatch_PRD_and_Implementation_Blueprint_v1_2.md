@@ -985,15 +985,15 @@ Snapshots indexed by:
 
 ## 5. Development Plan (milestones)
 
-### M0 — Project scaffold ✅
+### M0 — Project scaffold ✅ COMPLETE
 - repo skeleton, config loader, logging, DB models/migrations
 
-### M1 — Generic HTTP scraper + heuristic mapping ✅
+### M1 — Generic HTTP scraper + heuristic mapping ✅ COMPLETE
 - http backend
 - generic_table plugin
 - upsert + events
 
-### M2 — Playwright Backend + SearchFormPortal (ENHANCED in v1.3)
+### M2 — Playwright Backend + SearchFormPortal ✅ COMPLETE (ENHANCED in v1.3)
 **Components**:
 - `PlaywrightBackend` - browser automation backend
   - JavaScript rendering
@@ -1029,21 +1029,24 @@ Snapshots indexed by:
 - AT-M2.4: Cookie persistence works across runs
 - AT-M2.5: Screenshot captured on extraction failure
 
-### M3 — Scheduler
+### M3 — Scheduler ✅ COMPLETE
 - APScheduler service
 - schedule CLI
 - job storage + run locks
 
-### M4 — Crawl4AI backend
+### M4 — Crawl4AI backend ✅ COMPLETE
 - crawl4ai adapter
 - per-portal backend selection
 - markdown capture for descriptions
+- LLM extraction with content pruning
+- Multi-provider support: Groq (FREE), DeepSeek, OpenAI, Ollama, Gemini
 
-### M4.5 — Quick Mode (NEW)
+### M4.5 — Quick Mode ✅ COMPLETE (NEW)
 - quick CLI flow
 - crawl4ai LLM extraction integration for inferred schema
-- pagination heuristics for quick runs
+- pagination heuristics for quick runs (single-page only for now)
 - draft YAML generation from quick runs
+- content pruning for free tier LLM limits
 
 ### M5 — Export & operational polish
 - export formats
