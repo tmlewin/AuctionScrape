@@ -40,7 +40,7 @@ dependencies = [
     "aiosqlite>=0.20.0",
     # Resilience/Scheduling
     "tenacity>=8.3.0",
-    "apscheduler>=3.10.0",
+    "apscheduler>=4.0.0a6",
     # Configuration
     "pydantic>=2.7.0",
     "pydantic-settings>=2.2.0",

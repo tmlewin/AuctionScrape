@@ -576,6 +576,7 @@ async def run_portal_scrape(
     max_pages: int | None = None,
     follow_details: bool | None = None,
     dry_run: bool = False,
+    run_type: str = "manual",
 ) -> RunStats:
     """Convenience function to scrape a portal by name.
     
@@ -584,6 +585,7 @@ async def run_portal_scrape(
         max_pages: Maximum pages to scrape
         follow_details: Follow detail page links
         dry_run: Don't persist changes
+        run_type: Type of run (manual, scheduled, test)
         
     Returns:
         RunStats with execution statistics
@@ -596,4 +598,5 @@ async def run_portal_scrape(
     return await runner.run(
         max_pages=max_pages,
         follow_details=follow_details,
+        run_type=run_type,
     )

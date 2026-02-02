@@ -19,6 +19,20 @@ from rich.traceback import install as install_rich_traceback
 
 from procurewatch import __app_name__, __version__
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    # Look for .env in current directory and project root
+    env_path = Path(".env")
+    if not env_path.exists():
+        # Try project root (where pyproject.toml is)
+        project_root = Path(__file__).parent.parent.parent.parent
+        env_path = project_root / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+except ImportError:
+    pass  # python-dotenv not installed, use system env vars
+
 # Install rich traceback for better error display
 install_rich_traceback(show_locals=False, width=120)
 
@@ -67,13 +81,14 @@ def main(
 # Import and register subcommand modules
 # =============================================================================
 
-from .commands import db, portal, schedule, scrape, opportunities  # noqa: E402
+from .commands import db, portal, quick, schedule, scrape, opportunities  # noqa: E402
 
 app.add_typer(portal.app, name="portal", help="Manage portal configurations")
 app.add_typer(scrape.app, name="scrape", help="Run scrape jobs")
 app.add_typer(schedule.app, name="schedule", help="Manage scheduled jobs")
 app.add_typer(opportunities.app, name="opportunities", help="View and export opportunities")
 app.add_typer(db.app, name="db", help="Database operations")
+app.add_typer(quick.app, name="quick", help="AI-powered scraping (no config needed)")
 
 
 # =============================================================================

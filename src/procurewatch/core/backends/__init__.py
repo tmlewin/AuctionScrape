@@ -25,6 +25,20 @@ from .playwright_backend import (
     PageBlocked,
 )
 
+# Crawl4AI backend (optional - requires crawl4ai package)
+try:
+    from .crawl4ai_backend import (
+        Crawl4AIBackend,
+        Crawl4AIResult,
+        LLMConfig,
+        OpportunitySchema,
+        quick_scrape,
+        generate_portal_config,
+    )
+    _CRAWL4AI_AVAILABLE = True
+except ImportError:
+    _CRAWL4AI_AVAILABLE = False
+
 __all__ = [
     # Base classes
     "Backend",
@@ -50,4 +64,11 @@ __all__ = [
     "ElementNotFound",
     "ActionFailed",
     "PageBlocked",
+    # Crawl4AI backend (conditional)
+    "Crawl4AIBackend",
+    "Crawl4AIResult",
+    "LLMConfig",
+    "OpportunitySchema",
+    "quick_scrape",
+    "generate_portal_config",
 ]

@@ -43,28 +43,17 @@ navigation:
   steps: []  # Direct to search page, no extra navigation needed
 
 # Search form configuration
+# NOTE: Alberta loads results automatically on page load - no form submission needed
+# Setting selectors to null to skip form interaction
 search_form:
-  form_selector: ".search-container, form"
+  form_selector: null  # Skip form detection - results load automatically
   
-  fields:
-    # Leave keyword empty to get all results
-    - name: keyword
-      selector: "input[type='search'], input[name='q'], input[placeholder*='Search']"
-      type: text
-      value: ""
-      optional: true
-    
-    # Try to filter by open opportunities only
-    - name: status
-      selector: "select[name='status'], .status-filter select"
-      type: select
-      value: "Open"
-      optional: true
+  fields: []  # No fields to fill
   
   submit:
-    method: click
-    selector: "button[type='submit'], .search-button, button:has-text('Search')"
-    wait_for: "table, .results-container, .search-results"
+    method: none  # No submission needed
+    selector: null  # Skip submit button
+    wait_for: "apc-opportunity-search-result, .search-results, .results-container"
     wait_timeout_ms: 30000
 
 # Discovery configuration
