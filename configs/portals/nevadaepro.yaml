@@ -1,0 +1,116 @@
+# Nevada eProcurement Portal
+# State of Nevada's official procurement system
+
+name: nevadaepro
+display_name: Nevada eProcurement (NevadaEPro)
+base_url: https://nevadaepro.com
+portal_type: search_form
+
+seed_urls:
+  - https://nevadaepro.com/bso/view/search/external/externalSearchBid.xhtml
+
+# Backend configuration - may need Playwright for search forms
+backend:
+  preferred: playwright
+  fallbacks:
+    - crawl4ai
+  timeout_seconds: 45
+  headless: true
+
+# Politeness settings
+politeness:
+  concurrency: 1  # Lower due to search form interactions
+  min_delay_ms: 1500
+  max_delay_ms: 3000
+  respect_robots_txt: true
+  max_retries: 3
+
+# Discovery configuration
+discovery:
+  pagination:
+    type: page_number
+    selector_hint: ".pagination, .page-links"
+    max_pages: 30
+    cutoff_days: 60
+  detail_link_selector: "a.bid-link, tr td a[href*='viewBid']"
+  follow_detail_pages: true
+
+# Extraction configuration
+extraction:
+  listing:
+    mode: heuristic_table
+    table_selector: "#bidSearchResults, table.results"
+    row_selector: "tbody tr"
+    header_aliases:
+      external_id:
+        - "bid number"
+        - "solicitation number"
+        - "bid #"
+        - "rfp #"
+      title:
+        - "title"
+        - "description"
+        - "bid title"
+      closing_at:
+        - "close date"
+        - "closing date"
+        - "due date"
+      posted_at:
+        - "posted date"
+        - "issue date"
+      status:
+        - "status"
+        - "phase"
+      agency:
+        - "agency"
+        - "organization"
+        - "department"
+
+  detail:
+    mode: css_rules
+    fields:
+      description:
+        selectors:
+          - ".bid-description"
+          - "#bidDescription"
+          - ".description-content"
+        clean: true
+      estimated_value:
+        selectors:
+          - ".estimated-value"
+          - ".budget-amount"
+      contact_name:
+        selectors:
+          - ".buyer-info .name"
+          - ".contact-info .name"
+      contact_email:
+        selectors:
+          - ".buyer-info a[href^='mailto:']"
+          - ".contact-email"
+        attribute: href
+      contact_phone:
+        selectors:
+          - ".buyer-info .phone"
+          - ".contact-phone"
+      documents:
+        selectors:
+          - ".bid-documents a"
+          - ".attachments a"
+    use_markdown: true
+
+  confidence_threshold: 0.65
+  snapshot_on_low_confidence: true
+
+# Authentication
+auth:
+  strategy: none  # Public search, no login required
+
+enabled: true
+tags:
+  - nevada
+  - state
+  - public
+notes: |
+  Nevada's official state procurement portal.
+  Uses dynamic search form - requires Playwright backend.
+  May have rate limiting in place.

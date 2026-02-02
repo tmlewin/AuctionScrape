@@ -1,0 +1,61 @@
+# Test Portal Configuration
+# Uses example.com style test data - FOR TESTING ONLY
+
+name: test_portal
+display_name: Test Portal (Example)
+base_url: https://webscraper.io
+portal_type: generic_table
+
+seed_urls:
+  - https://webscraper.io/test-sites/tables
+
+# Backend configuration
+backend:
+  preferred: http
+  timeout_seconds: 30
+
+# Politeness settings
+politeness:
+  concurrency: 1
+  min_delay_ms: 500
+  max_delay_ms: 1000
+  max_retries: 2
+
+# Discovery configuration
+discovery:
+  pagination:
+    type: none
+    max_pages: 1
+  follow_detail_pages: false
+
+# Extraction configuration
+extraction:
+  listing:
+    mode: heuristic_table
+    table_selector: "table"
+    row_selector: "tbody tr"
+    header_aliases:
+      external_id:
+        - "#"
+        - "id"
+        - "number"
+      title:
+        - "first name"
+        - "name"
+        - "title"
+      category:
+        - "last name"
+        - "category"
+        - "type"
+      status:
+        - "username"
+        - "status"
+
+  confidence_threshold: 0.5
+
+enabled: true
+tags:
+  - test
+notes: |
+  Test portal for development.
+  Uses webscraper.io test tables.

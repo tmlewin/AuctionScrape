@@ -1,0 +1,120 @@
+# Clark County, NV - Current Opportunities Portal
+# https://www.clarkcountynv.gov/business/business_opportunities/current-opportunities/
+
+name: clarkcounty_nv
+display_name: Clark County, NV - Current Opportunities
+base_url: https://www.clarkcountynv.gov
+portal_type: generic_table
+
+seed_urls:
+  - https://www.clarkcountynv.gov/business/business_opportunities/current-opportunities/
+
+# Backend configuration
+backend:
+  preferred: http
+  fallbacks:
+    - playwright
+  timeout_seconds: 30
+  headless: true
+
+# Politeness settings
+politeness:
+  concurrency: 2
+  min_delay_ms: 800
+  max_delay_ms: 2500
+  respect_robots_txt: true
+  max_retries: 3
+
+# Discovery configuration
+discovery:
+  pagination:
+    type: next_link
+    selector_hint: "a[rel='next'], .pagination a.next"
+    max_pages: 20
+    cutoff_days: 90
+  detail_link_selector: "table.opportunities a, .opportunity-link"
+  follow_detail_pages: true
+
+# Extraction configuration
+extraction:
+  # Listing page extraction
+  listing:
+    mode: heuristic_table
+    table_selector: "table.opportunities, table.datatable, table"
+    row_selector: "tbody tr"
+    header_aliases:
+      external_id:
+        - "solicitation #"
+        - "bid #"
+        - "reference"
+        - "id"
+        - "number"
+      title:
+        - "title"
+        - "description"
+        - "project"
+        - "name"
+      closing_at:
+        - "closing"
+        - "deadline"
+        - "bid due"
+        - "due date"
+        - "close date"
+      posted_at:
+        - "posted"
+        - "issue date"
+        - "open date"
+      category:
+        - "category"
+        - "type"
+        - "commodity"
+      agency:
+        - "department"
+        - "agency"
+        - "division"
+
+  # Detail page extraction  
+  detail:
+    mode: css_rules
+    fields:
+      description:
+        selectors:
+          - "#main-content .description"
+          - "article .content"
+          - ".opportunity-details"
+        clean: true
+        required: false
+      contact_name:
+        selectors:
+          - ".contact-name"
+          - ".buyer-name"
+        clean: true
+      contact_email:
+        selectors:
+          - ".contact-email a"
+          - "a[href^='mailto:']"
+        attribute: href
+      documents:
+        selectors:
+          - ".documents a"
+          - ".attachments a"
+    description_selector: ".main-content, article, .content"
+    use_markdown: true
+
+  confidence_threshold: 0.7
+  snapshot_on_low_confidence: true
+
+# Authentication (none required for this portal)
+auth:
+  strategy: none
+
+# Portal metadata
+enabled: true
+tags:
+  - nevada
+  - county
+  - public
+notes: |
+  Clark County, NV public procurement portal.
+  Contains current open solicitations.
+  No authentication required.

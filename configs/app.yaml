@@ -1,0 +1,48 @@
+# Application Configuration
+# See documentation for all available options
+
+# Directory paths
+config_dir: configs
+data_dir: data
+snapshot_dir: snapshots
+
+# Database settings
+database:
+  url: sqlite:///data/procurewatch.db
+  echo: false
+  pool_size: 5
+
+# Logging settings  
+logging:
+  level: INFO
+  file: logs/procurewatch.log
+  json_format: true
+  rich_console: true
+
+# Scheduler settings
+scheduler:
+  enabled: true
+  max_concurrent_runs: 1
+  default_jitter_minutes: 5
+  schedules: []
+
+# Default backend settings for portals
+default_backend:
+  preferred: http
+  fallbacks:
+    - playwright
+  timeout_seconds: 30
+  headless: true
+
+# Default politeness settings for portals
+default_politeness:
+  concurrency: 2
+  min_delay_ms: 500
+  max_delay_ms: 2000
+  respect_robots_txt: true
+  max_retries: 3
+  retry_backoff_factor: 2.0
+
+# Feature flags
+enable_crawl4ai: false
+enable_tui: false

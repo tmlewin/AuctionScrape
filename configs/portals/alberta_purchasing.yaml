@@ -1,0 +1,181 @@
+# Alberta Purchasing Connection Portal Configuration
+# A real procurement portal that requires JavaScript rendering
+# Uses search_form portal type with PlaywrightBackend
+
+name: alberta_purchasing
+display_name: Alberta Purchasing Connection
+base_url: https://purchasing.alberta.ca
+portal_type: search_form
+
+seed_urls:
+  - https://purchasing.alberta.ca/search
+
+# Backend configuration - requires Playwright for JS rendering
+backend:
+  preferred: playwright
+  fallbacks: []
+  timeout_seconds: 60
+  headless: true
+
+# Playwright-specific configuration
+playwright:
+  browser: chromium
+  viewport_width: 1920
+  viewport_height: 1080
+  stealth: true
+  cookies_persist: true
+  cookies_path: data/cookies/alberta_purchasing.json
+  screenshots_on_error: true
+  screenshots_path: snapshots/alberta_purchasing
+  navigation_timeout_ms: 30000
+  action_timeout_ms: 10000
+
+# Politeness settings - be gentle with government portals
+politeness:
+  concurrency: 1
+  min_delay_ms: 2000
+  max_delay_ms: 4000
+  max_retries: 3
+  respect_robots_txt: true
+
+# Navigation steps (if needed to reach search)
+navigation:
+  steps: []  # Direct to search page, no extra navigation needed
+
+# Search form configuration
+search_form:
+  form_selector: ".search-container, form"
+  
+  fields:
+    # Leave keyword empty to get all results
+    - name: keyword
+      selector: "input[type='search'], input[name='q'], input[placeholder*='Search']"
+      type: text
+      value: ""
+      optional: true
+    
+    # Try to filter by open opportunities only
+    - name: status
+      selector: "select[name='status'], .status-filter select"
+      type: select
+      value: "Open"
+      optional: true
+  
+  submit:
+    method: click
+    selector: "button[type='submit'], .search-button, button:has-text('Search')"
+    wait_for: "table, .results-container, .search-results"
+    wait_timeout_ms: 30000
+
+# Discovery configuration
+discovery:
+  pagination:
+    type: click_next
+    next_button_selector: "[aria-label*='Next'], button:has-text('Next'), .pagination-next, a.next"
+    disabled_class: "disabled"
+    wait_after_click_ms: 3000
+    wait_for_selector: "table tbody tr, .result-item"
+    max_pages: 50
+  follow_detail_pages: true
+  detail_link_selector: "a[href*='/opportunity/'], a[href*='/tender/']"
+
+# Extraction configuration
+extraction:
+  listing:
+    mode: heuristic_table
+    table_selector: "table"
+    row_selector: "tbody tr"
+    header_aliases:
+      external_id:
+        - "tender number"
+        - "solicitation"
+        - "solicitation number"
+        - "reference"
+        - "reference number"
+        - "id"
+        - "#"
+      title:
+        - "title"
+        - "description"
+        - "opportunity"
+        - "name"
+        - "project"
+      closing_at:
+        - "closing date"
+        - "close date"
+        - "deadline"
+        - "due date"
+        - "submission date"
+      posted_at:
+        - "posted"
+        - "posted date"
+        - "publish date"
+        - "issue date"
+        - "open date"
+      status:
+        - "status"
+        - "state"
+        - "opportunity status"
+      agency:
+        - "ministry"
+        - "department"
+        - "organization"
+        - "buyer"
+        - "issuing organization"
+        - "agency"
+      category:
+        - "category"
+        - "type"
+        - "commodity"
+        - "classification"
+  
+  detail:
+    mode: css_rules
+    description_selector: ".description, .details, #description, article"
+    fields:
+      contact_name:
+        selectors:
+          - ".contact-name"
+          - "[data-field='contact']"
+          - "dt:contains('Contact') + dd"
+        clean: true
+      contact_email:
+        selectors:
+          - "a[href^='mailto:']"
+          - ".contact-email"
+        attribute: href
+        regex: "mailto:(.+)"
+        clean: true
+      estimated_value:
+        selectors:
+          - ".estimated-value"
+          - "[data-field='value']"
+          - "dt:contains('Value') + dd"
+        clean: true
+  
+  confidence_threshold: 0.5
+  snapshot_on_low_confidence: true
+
+# Authentication (none required for public data)
+auth:
+  strategy: none
+
+# Metadata
+enabled: true
+tags:
+  - canada
+  - alberta
+  - provincial
+  - government
+notes: |
+  Alberta Purchasing Connection - Government of Alberta procurement portal.
+  
+  This is a JavaScript-rendered Angular application that requires
+  PlaywrightBackend for proper scraping.
+  
+  The portal provides public access to:
+  - Active tenders/RFPs
+  - Standing offers
+  - Contract awards
+  
+  No authentication required for public opportunities.
