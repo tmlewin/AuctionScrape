@@ -1048,6 +1048,35 @@ Snapshots indexed by:
 - draft YAML generation from quick runs
 - content pruning for free tier LLM limits
 
+### M4.6 — Smart Extraction Enhancement (Phase 1) ✅ COMPLETE (2026-02-03)
+**Reference**: `SMART_EXTRACTION_PLAN.md` Phase 1
+
+**Components Delivered**:
+- `PageAnalyzer` class (`core/analysis/page_analyzer.py`, 850+ lines)
+  - DOM-based page structure analysis (no LLM needed)
+  - Page type classification: `search_form`, `results_table`, `results_cards`, `error_page`, `empty_results`
+  - Pagination metadata extraction: "1-25 of 1448" → `total_records=1448`, `records_per_page=25`
+  - Search form detection with submit button identification
+  - Error page detection with strict patterns (no false positives)
+  - CAPTCHA and login requirement detection
+- Pre-flight integration in `crawl4ai_backend.py`
+  - Runs analysis BEFORE LLM extraction
+  - Auto-clicks search button when form detected
+- CLI output enhancement (`cli/commands/quick.py`)
+  - Shows total records detected, page type, pre-flight timing
+
+**Test Results**:
+- Alberta Purchasing: 10 opps, 96.4% confidence, `results_cards` ✅
+- Nevada ePro: Pagination detected (1,448 records), no false positive errors ✅
+- Unit tests: All passing (`test_phase1.py`) ✅
+
+**Acceptance Criteria Met**:
+- ✅ Pagination metadata extracted from DOM (no LLM)
+- ✅ Search form auto-detection and auto-click
+- ✅ Page type classification accurate
+- ✅ Error page detection strict (no false positives)
+- ✅ Pre-flight analysis adds ~3-4s but provides valuable metadata
+
 ### M5 — Export & operational polish
 - export formats
 - dashboards
@@ -1055,7 +1084,95 @@ Snapshots indexed by:
 
 ---
 
-## 6. Appendix — Recommended Dependencies (pyproject)
+## 6. Appendix — Commercial Readiness (Phase 2 Addendum)
+
+**Purpose**: Extend the current roadmap without changing scope. This addendum targets commercial-scale reliability and Firecrawl-level extraction density while preserving the existing milestones.
+
+**Out of scope for current PRD**:
+- No public API/PaaS in this phase
+- No customer-facing UI/dashboard buildout beyond M5
+- No billing, tenancy, or enterprise auth
+
+**Phase 2 Themes (aligned to current plans)**:
+- Confidence Overhaul (SMART_EXTRACTION_PLAN Phase 2)
+- Deep Scrape Enhancement (M4.5 baseline)
+- IP/Proxy Rotation (future enhancement in AGENTS.md)
+- Export & Polish (M5)
+- Validation across more portals
+
+### CR-1 — Auth Reliability Layer
+**Goal**: Eliminate partial/blocked pages mixed with results.
+
+**Deliverables**:
+- Detect login-required states and pause/auto-login before extraction
+- Session manager for storage-state reuse and re-login triggers
+- Portal-level auth scripts (replayable steps)
+
+**Success metrics**:
+- 95%+ pages classified as clean results vs login/blocked
+- 80%+ reduction in mixed-content pages on protected portals
+
+### CR-2 — Proxy + Anti-Bot Layer
+**Goal**: Scale to protected procurement sites at volume.
+
+**Deliverables**:
+- Proxy configuration in all backends (single + rotation)
+- Adaptive throttling on 429/blocked signals
+- Per-domain rate budgets with jitter
+
+**Success metrics**:
+- 2x successful page throughput on protected portals
+- <5% blocked pages on repeat runs (same portal)
+
+### CR-3 — Extraction Fidelity for Tables
+**Goal**: Preserve dense, Firecrawl-level data with canonical fields.
+
+**Deliverables**:
+- Table schema inference (dedupe repeated headers, map to canonical fields)
+- Preserve link/value pairs and column order
+- Capture unmapped columns into structured custom_fields
+
+**Success metrics**:
+- 90%+ of table columns preserved across 10+ complex portals
+- 95%+ of rows retain primary identifiers and links
+
+### CR-4 — Deep Scrape Enrichment
+**Goal**: High-value detail capture at scale.
+
+**Deliverables**:
+- Always follow detail URLs when present
+- Detail extraction cache + resume
+- Attachments, contact info, requirements
+
+**Success metrics**:
+- 80%+ of listings enriched with detail fields
+- 50%+ increase in average field count per opportunity
+
+### CR-5 — Warehouse-Ready Normalization
+**Goal**: Enable downstream data warehouse use.
+
+**Deliverables**:
+- Normalize agency/organization names
+- Standardize location + classification codes
+- Preserve raw_data for reprocessing
+
+**Success metrics**:
+- 95%+ of records mapped to normalized organization dimension
+- 80%+ of records carry standardized location metadata
+
+### CR-6 — Export & Interop
+**Goal**: Make data portable for BI and warehousing.
+
+**Deliverables**:
+- JSONL/CSV exports at scale
+- Stable schema versioning for exports
+- Portal-level export filters
+
+**Success metrics**:
+- 1M+ records exported without memory failures
+- Zero schema breaking changes within a release
+
+## 7. Appendix — Recommended Dependencies (pyproject)
 
 **CLI/TUI**
 - typer, rich, textual (optional)
@@ -1076,7 +1193,7 @@ Snapshots indexed by:
 
 ---
 
-## 7. Notes on “free vs paid”
+## 8. Notes on “free vs paid”
 Crawl4AI is open-source and installable locally as a Python package, making it a better fit for your “local-first, no paid API dependency” requirement.
 
 ---

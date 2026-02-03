@@ -200,6 +200,46 @@ Sample extracted:
 | Draft YAML generation | `crawl4ai_backend.py` | ✅ Works |
 | Content pruning for free tiers | `crawl4ai_backend.py` | ✅ Works |
 
+### M4.6 Smart Extraction Enhancement (Phase 1) ✅ COMPLETE (NEW)
+
+> Reference: `SMART_EXTRACTION_PLAN.md` Phase 1
+
+| Component | File | Status | Notes |
+|-----------|------|--------|-------|
+| PageAnalyzer class | `core/analysis/page_analyzer.py` | ✅ Complete | 850+ lines, DOM-based analysis |
+| PageAnalysisResult | `core/analysis/page_analyzer.py` | ✅ Complete | Full page state detection |
+| Pagination metadata extraction | `core/analysis/page_analyzer.py` | ✅ Works | 6+ regex patterns for "1-25 of 1448" etc. |
+| Search form detection | `core/analysis/page_analyzer.py` | ✅ Works | Detects forms + submit buttons |
+| Error page detection | `core/analysis/page_analyzer.py` | ✅ Fixed | Strict patterns to avoid false positives |
+| Page type classification | `core/analysis/page_analyzer.py` | ✅ Works | SEARCH_FORM, RESULTS_TABLE, RESULTS_CARDS, etc. |
+| Pre-flight integration | `core/backends/crawl4ai_backend.py` | ✅ Works | Runs before LLM extraction |
+| CLI metadata display | `cli/commands/quick.py` | ✅ Works | Shows total records, pages, page type |
+
+#### Phase 1 Features Implemented
+
+**Pre-flight Page Analysis** - Analyze page structure BEFORE LLM extraction:
+- Detect page type: `search_form`, `results_table`, `results_cards`, `results_list`, `error_page`, `empty_results`
+- Extract pagination metadata: "1-25 of 1448" → `total_records=1448`, `records_per_page=25`
+- Detect search forms and their submit buttons
+- Auto-click search button when form is detected
+- CAPTCHA and login requirement detection
+
+**CLI Output Enhancement**:
+```
+┌── Extraction Results - Success ──┐
+│ 10 opportunities extracted       │
+│ Total records detected: 1,448    │   ← NEW
+│   (25 per page, ~58 pages total) │   ← NEW
+│ Page type: results_cards         │   ← NEW
+│   (pre-flight: 2967ms)           │   ← NEW
+└──────────────────────────────────┘
+```
+
+**Test Results (2026-02-03)**:
+- Alberta Purchasing: ✅ 10 opps, 96.4% confidence, `results_cards`
+- Nevada ePro: ✅ Pagination detected (1,448 records), form detection works
+- Unit tests: ✅ All passing
+
 #### M4.5 Multi-Page Features (NEW - 2026-02-02)
 
 **Pagination Detection & Traversal**:
@@ -278,24 +318,139 @@ QuickModeConfig(
 
 ## Current Session Context
 
-**Last worked on**: LLM Provider Troubleshooting & Configuration
+**Last worked on**: Phase 1 Smart Extraction - COMPLETE, Documentation Update
 
-**Date**: 2026-02-02
+**Date**: 2026-02-03
 
-**Status**: 🔄 Investigating LLM provider rate limits and authentication issues
+**Status**: ✅ Phase 1 Complete - All pre-flight analysis features working, documentation updated
 
 **What was done this session**:
-1. Diagnosed rate limit errors across multiple LLM providers
-2. Updated `.env` configuration multiple times to test different providers
-3. Researched correct model names for Gemini via official LiteLLM documentation
-4. Configured Ollama as the recommended local provider for unlimited usage
+1. Fixed false positive error page detection (patterns were too broad)
+2. Reordered analysis logic: detect data first, THEN check for errors
+3. Made error patterns much stricter (require heading/title context)
+4. Tested Alberta Purchasing: 10 opps, 96.4% confidence ✅
+5. Tested Nevada ePro: Pagination metadata extracted (1,448 records) ✅
+6. All unit tests passing ✅
+7. Updated AGENTS.md with M4.6 documentation
+8. Updated AGENTS.md with comprehensive Stealth Mode documentation
 
 **Key Files Modified**:
-- `.env` - Updated LLM provider configuration multiple times
+- `src/procurewatch/core/analysis/page_analyzer.py` - Stricter error detection, smarter analysis order
+- `AGENTS.md` - Added M4.6 section, stealth mode documentation
+
+**Phase 1 Summary (SMART_EXTRACTION_PLAN.md Phase 1)**:
+- ✅ PageAnalyzer class created (850+ lines)
+- ✅ Pagination metadata extraction working ("1-25 of 1448" → 1448 total, 25/page)
+- ✅ Search form detection working
+- ✅ Page type classification working  
+- ✅ Error page detection (strict patterns, no false positives)
+- ✅ CAPTCHA and login requirement detection
+- ✅ Pre-flight integration in crawl4ai_backend
+- ✅ CLI displays new metadata (total records, page type, pre-flight time)
+- ✅ Unit tests passing (test_phase1.py)
 
 ---
 
-## LLM Provider Reference (CRITICAL - Read Before Scraping)
+## Stealth Mode & Anti-Bot Detection (M1/M2 Feature)
+
+### Current Implementation Status
+
+| Feature | PlaywrightBackend | Crawl4AI Backend | Status |
+|---------|-------------------|------------------|--------|
+| `navigator.webdriver` override | ✅ Implemented | ✅ Via Crawl4AI | Works |
+| Realistic user agent | ✅ Configurable | ✅ Configurable | Works |
+| Chrome flags (--disable-blink-features) | ✅ Implemented | ✅ Via Crawl4AI | Works |
+| WebGL fingerprint spoofing | ✅ Implemented | ❌ Not available | Partial |
+| Plugins/languages spoofing | ✅ Implemented | ❌ Not available | Partial |
+| Cookie persistence | ✅ Implemented | ✅ Session-based | Works |
+| Viewport/screen size | ✅ Configurable | ✅ 1920x1080 | Works |
+| Human-in-the-loop (headed mode) | ✅ `pause_for_human()` | ✅ `--headed` flag | Works |
+| CAPTCHA detection | ✅ Page analysis | ✅ Page analysis | Warns only |
+| Bot detection page detection | ✅ Content check | ✅ Content check | Works |
+
+### Stealth Script (PlaywrightBackend)
+
+Located in `src/procurewatch/core/backends/playwright_backend.py` lines 123-189:
+
+```javascript
+// Key anti-detection measures:
+Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+Object.defineProperty(navigator, 'plugins', { get: () => [...] });
+Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+window.chrome = { runtime: {}, loadTimes: function() {}, ... };
+// WebGL vendor/renderer spoofing
+// Permissions API override
+```
+
+### Browser Launch Args (Stealth Mode)
+
+```python
+launch_args = [
+    "--disable-blink-features=AutomationControlled",
+    "--disable-dev-shm-usage",
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-infobars",
+    "--disable-extensions",
+]
+```
+
+### What Stealth Mode Does NOT Handle
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| IP-based blocking | ❌ Not handled | Needs proxy rotation (future) |
+| Rate-based blocking | ⚠️ Partial | `--delay` helps, but no auto-throttle |
+| CAPTCHA solving | ❌ Not handled | Human-in-the-loop only |
+| Cloudflare/Akamai bypass | ⚠️ Limited | May work, not guaranteed |
+| Device fingerprinting (advanced) | ⚠️ Basic only | Canvas, AudioContext not spoofed |
+
+### How to Use Stealth Mode
+
+**PlaywrightBackend** (stealth ON by default):
+```python
+backend = PlaywrightBackend(stealth=True)  # Default
+```
+
+**Crawl4AI Backend** (stealth ON by default):
+```python
+backend = Crawl4AIBackend(enable_stealth=True)  # Default
+```
+
+**CLI Quick Scrape** (uses Crawl4AI with stealth):
+```bash
+# Stealth is enabled by default
+python -m procurewatch.cli.main quick scrape <url>
+
+# With headed mode for debugging/human intervention
+python -m procurewatch.cli.main quick scrape <url> --headed
+```
+
+### Deep Scrape and Stealth
+
+Deep scrape (`--deep` flag) uses the same stealth measures:
+```bash
+python -m procurewatch.cli.main quick scrape <url> --deep --max-details 50
+```
+
+**Note**: Deep scrape follows detail URLs from the results page. Each detail page fetch uses the same stealth-enabled browser session.
+
+### Known Issues with Bot Detection
+
+1. **Nevada ePro (Periscope S2G)**: May show "unable to process your request" - this is server-side blocking, stealth won't help
+2. **Cloudflare-protected sites**: May require headed mode + human intervention
+3. **Sites with IP rate limits**: Need to add delays or use proxy rotation
+
+### Future Enhancements (Not Implemented)
+
+| Feature | Priority | Notes |
+|---------|----------|-------|
+| Proxy rotation | Medium | Round-robin or smart proxy selection |
+| Auto rate-limit detection | Medium | Detect 429s and auto-throttle |
+| Residential proxy support | Low | For heavily protected sites |
+| Fingerprint randomization | Low | Different fingerprint per session |
+
+---
 
 ### Provider Status Summary
 

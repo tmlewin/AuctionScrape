@@ -70,12 +70,19 @@ class RichConsoleHandler(logging.Handler):
         super().__init__(level)
         if console is None:
             from rich.console import Console
-            console = Console(stderr=True)
+            # Force UTF-8 encoding for Windows compatibility
+            console = Console(stderr=True, force_terminal=True)
         self.console = console
     
     def emit(self, record: logging.LogRecord) -> None:
         try:
             message = self.format(record)
+            
+            # Sanitize message for Windows encoding issues
+            try:
+                message.encode('cp1252')
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                message = message.encode('ascii', errors='replace').decode('ascii')
             
             # Color based on level
             style = {
@@ -123,6 +130,18 @@ def setup_logging(
     Returns:
         Root logger for procurewatch
     """
+    # Force UTF-8 encoding on Windows to avoid charmap errors
+    if sys.platform == "win32":
+        import os
+        os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+        # Reconfigure stdout/stderr if possible (Python 3.7+)
+        if hasattr(sys.stdout, 'reconfigure'):
+            try:
+                sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+                sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+            except (AttributeError, OSError):
+                pass
+    
     # Get root logger for our package
     logger = logging.getLogger("procurewatch")
     logger.setLevel(getattr(logging, level.upper()))
