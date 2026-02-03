@@ -39,6 +39,7 @@ from procurewatch.core.backends.base import (
     RenderResult,
     RequestSpec,
 )
+from procurewatch.core.analysis import PageAnalyzer, PageAnalysisResult, PageType
 
 if TYPE_CHECKING:
     from crawl4ai import AsyncWebCrawler, CrawlResult
@@ -214,6 +215,13 @@ class MultiPageResult:
     warnings: list[str] = field(default_factory=list)
     pagination_type_detected: str = "none"
     stopped_reason: str | None = None  # Why pagination stopped
+    
+    # NEW: Pre-flight analysis metadata (Phase 1)
+    total_records_detected: int | None = None  # From pagination text like "1-25 of 1448"
+    records_per_page_detected: int | None = None
+    page_type_detected: str | None = None  # search_form, results_table, etc.
+    form_auto_clicked: bool = False  # True if we auto-clicked a search button
+    preflight_analysis_ms: float = 0.0  # Time spent on pre-flight analysis
 
 
 # =============================================================================
@@ -709,6 +717,16 @@ class Crawl4AIBackend(Backend):
                         opportunities = extracted.get("opportunities", [extracted])
                 except json.JSONDecodeError as e:
                     logger.warning(f"Failed to parse extracted content: {e}")
+
+            if not opportunities:
+                raw_markdown = self._get_raw_markdown(result)
+                fallback_opps = self._parse_markdown_table(raw_markdown or "", url)
+                if fallback_opps:
+                    opportunities = fallback_opps
+                    method = "markdown_table"
+                    logger.info(
+                        f"Fallback markdown table parsing extracted {len(opportunities)} opportunities from {url}"
+                    )
             
             # Get token usage if available
             token_usage = None
@@ -872,6 +890,13 @@ class Crawl4AIBackend(Backend):
         pagination_type_detected = "none"
         stopped_reason = None
         
+        # NEW: Pre-flight analysis metadata
+        total_records_detected: int | None = None
+        records_per_page_detected: int | None = None
+        page_type_detected: str | None = None
+        form_auto_clicked: bool = False
+        preflight_analysis_ms: float = 0.0
+        
         # Create unique session ID for this scrape
         session_id = f"quick_{uuid.uuid4().hex[:8]}"
         
@@ -886,6 +911,83 @@ class Crawl4AIBackend(Backend):
         crawler = await self._ensure_crawler()
         
         logger.info(f"Starting multi-page extraction: {url} (max_pages={config.max_pages})")
+        
+        # =====================================================================
+        # NEW: Pre-flight Page Analysis (Phase 1)
+        # =====================================================================
+        # Analyze the page BEFORE extraction to detect:
+        # - Search forms that need interaction
+        # - Pagination metadata (total records, pages)
+        # - Page type (results vs form)
+        
+        preflight_result = await self._preflight_analysis(
+            url=url,
+            session_id=session_id,
+            crawler=crawler,
+            config=config,
+        )
+        
+        if preflight_result:
+            preflight_analysis_ms = preflight_result.get("analysis_ms", 0)
+            page_analysis = preflight_result.get("analysis")
+            
+            if page_analysis:
+                page_type_detected = page_analysis.page_type.value
+                
+                # Extract pagination metadata
+                if page_analysis.pagination.total_records:
+                    total_records_detected = page_analysis.pagination.total_records
+                    records_per_page_detected = page_analysis.pagination.records_per_page
+                    logger.info(
+                        f"Pre-flight: Detected {total_records_detected} total records "
+                        f"({records_per_page_detected or '?'} per page)"
+                    )
+                
+                # Handle search form detection
+                if page_analysis.needs_form_interaction:
+                    logger.info(
+                        f"Pre-flight: Detected search form, attempting auto-click: "
+                        f"{page_analysis.search_button_selector}"
+                    )
+                    click_result = await self._auto_click_search(
+                        session_id=session_id,
+                        crawler=crawler,
+                        selector=page_analysis.search_button_selector,
+                    )
+                    if click_result.get("success"):
+                        form_auto_clicked = True
+                        warnings.append(
+                            "Auto-clicked search button to show results"
+                        )
+                        # Re-analyze after click
+                        reanalysis = await self._preflight_analysis(
+                            url=url,
+                            session_id=session_id,
+                            crawler=crawler,
+                            config=config,
+                            use_existing_session=True,
+                        )
+                        if reanalysis and reanalysis.get("analysis"):
+                            page_analysis = reanalysis["analysis"]
+                            if page_analysis.pagination.total_records:
+                                total_records_detected = page_analysis.pagination.total_records
+                                records_per_page_detected = page_analysis.pagination.records_per_page
+                    else:
+                        warnings.append(
+                            f"Failed to auto-click search: {click_result.get('error', 'unknown')}"
+                        )
+                
+                # Warn about error pages
+                if page_analysis.is_error_page:
+                    errors.append(f"Error page detected: {page_analysis.error_message}")
+                
+                # Warn about login/CAPTCHA
+                if page_analysis.requires_login:
+                    warnings.append("Page may require login")
+                if page_analysis.has_captcha:
+                    warnings.append("CAPTCHA detected - may affect extraction")
+        
+        # =====================================================================
         
         current_url = url
         page_num = 0
@@ -917,6 +1019,14 @@ class Crawl4AIBackend(Backend):
                     
                     # Parse opportunities from this page
                     page_opps = self._parse_extracted_content(result.extracted_content)
+                    if not page_opps:
+                        raw_markdown = self._get_raw_markdown(result)
+                        fallback_opps = self._parse_markdown_table(raw_markdown or "", current_url)
+                        if fallback_opps:
+                            page_opps = fallback_opps
+                            warnings.append(
+                                f"Page {page_num} used markdown table fallback"
+                            )
                     confidence = self._calculate_confidence(page_opps)
                     total_confidence += confidence
                     
@@ -984,7 +1094,13 @@ class Crawl4AIBackend(Backend):
                     
                 except Exception as e:
                     retry_count += 1
-                    error_msg = f"Page {page_num} attempt {retry_count} failed: {e}"
+                    # Sanitize error message for Windows console encoding
+                    error_str = str(e)
+                    try:
+                        error_str.encode('cp1252')
+                    except UnicodeEncodeError:
+                        error_str = error_str.encode('ascii', errors='replace').decode('ascii')
+                    error_msg = f"Page {page_num} attempt {retry_count} failed: {error_str}"
                     logger.warning(error_msg)
                     
                     if retry_count > config.max_retries:
@@ -1043,6 +1159,12 @@ class Crawl4AIBackend(Backend):
             warnings=warnings,
             pagination_type_detected=pagination_type_detected,
             stopped_reason=stopped_reason,
+            # NEW: Pre-flight analysis metadata
+            total_records_detected=total_records_detected,
+            records_per_page_detected=records_per_page_detected,
+            page_type_detected=page_type_detected,
+            form_auto_clicked=form_auto_clicked,
+            preflight_analysis_ms=preflight_analysis_ms,
         )
 
     async def _build_page_config(
@@ -1421,6 +1543,146 @@ class Crawl4AIBackend(Backend):
         
         return []
 
+    def _get_raw_markdown(self, result: Any) -> str | None:
+        """Extract raw markdown text from a Crawl4AI result."""
+        markdown = getattr(result, "markdown", None)
+        if markdown is None:
+            return None
+        if isinstance(markdown, str):
+            return markdown
+        return getattr(markdown, "raw_markdown", str(markdown))
+
+    def _extract_results_section(self, markdown: str) -> str:
+        """Extract the results section from markdown if present."""
+        marker = "## Results"
+        index = markdown.find(marker)
+        if index == -1:
+            return markdown
+        return markdown[index:]
+
+    def _strip_markdown_links(self, text: str) -> str:
+        """Remove markdown link formatting but keep link text."""
+        return re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+
+    def _clean_table_cell(self, text: str) -> str:
+        """Clean a markdown table cell for extraction."""
+        cleaned = self._strip_markdown_links(text)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        cleaned = re.sub(
+            r"^(contract\s*#|bid\s*#|bid solicitation\s*#|description|vendor|organization|status|begin date|end date|dollars spent to date)\s*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        return cleaned.strip()
+
+    def _extract_first_url(self, text: str) -> str | None:
+        """Extract first URL from a markdown link in text."""
+        match = re.search(r"\((https?://[^)]+)\)", text)
+        if match:
+            return match.group(1)
+        return None
+
+    def _normalize_header(self, header: str) -> str:
+        """Normalize header text for matching."""
+        text = self._strip_markdown_links(header).lower()
+        text = re.sub(r"[^a-z0-9]+", " ", text)
+        return text.strip()
+
+    def _split_markdown_row(self, line: str) -> list[str]:
+        """Split a markdown table row into cells."""
+        return [part.strip() for part in line.strip().strip("|").split("|")]
+
+    def _match_header_field(self, header: str) -> str | None:
+        """Match normalized header to a schema field."""
+        aliases: dict[str, list[str]] = {
+            "external_id": [
+                "contract",
+                "contract #",
+                "contract number",
+                "bid",
+                "bid #",
+                "bid number",
+                "bid solicitation",
+                "solicitation",
+                "solicitation #",
+                "solicitation number",
+                "rfp",
+                "rfp #",
+                "reference",
+            ],
+            "title": ["title", "description", "opportunity", "project", "name"],
+            "agency": ["agency", "organization", "department", "ministry", "org"],
+            "status": ["status", "phase"],
+            "posted_at": ["posted date", "issue date", "begin date", "start date", "publication date"],
+            "closing_at": ["closing date", "close date", "due date", "end date", "deadline", "expiration date"],
+            "value": ["value", "amount", "budget", "dollars spent", "estimated value", "contract value"],
+        }
+        header_tokens = set(header.split())
+        for field, options in aliases.items():
+            for option in options:
+                option_tokens = set(option.split())
+                if option_tokens and option_tokens.issubset(header_tokens):
+                    return field
+        return None
+
+    def _parse_markdown_table(self, markdown: str, base_url: str) -> list[dict[str, Any]]:
+        """Parse the first markdown table into opportunity-like dicts."""
+        if not markdown:
+            return []
+
+        section = self._extract_results_section(markdown)
+        lines = [line.strip() for line in section.splitlines() if line.strip()]
+        table_start: int | None = None
+        for index in range(len(lines) - 1):
+            if "|" in lines[index] and re.match(r"^\s*\|?\s*-{3,}", lines[index + 1]) and "|" in lines[index + 1]:
+                table_start = index
+                break
+
+        if table_start is None:
+            return []
+
+        headers = self._split_markdown_row(lines[table_start])
+        normalized_headers = [self._normalize_header(header) for header in headers]
+        header_map: dict[int, str] = {}
+        for idx, header in enumerate(normalized_headers):
+            field = self._match_header_field(header)
+            if field:
+                header_map[idx] = field
+
+        opportunities: list[dict[str, Any]] = []
+        for line in lines[table_start + 2 :]:
+            if "|" not in line:
+                break
+            if re.match(r"^\s*\|?\s*-{3,}", line):
+                continue
+            cells = self._split_markdown_row(line)
+            if len(cells) < 2:
+                continue
+
+            opportunity: dict[str, Any] = {}
+            detail_url: str | None = None
+
+            for idx, cell in enumerate(cells):
+                if idx not in header_map:
+                    if not detail_url:
+                        detail_url = self._extract_first_url(cell)
+                    continue
+                field = header_map[idx]
+                if not detail_url:
+                    detail_url = self._extract_first_url(cell)
+                value = self._clean_table_cell(cell)
+                if value and not opportunity.get(field):
+                    opportunity[field] = value
+
+            if detail_url:
+                opportunity["detail_url"] = detail_url
+
+            if opportunity.get("title") or opportunity.get("external_id"):
+                opportunities.append(self._fix_urls(opportunity, base_url))
+
+        return opportunities
+
     def _get_opportunity_id(self, opp: dict[str, Any]) -> str:
         """Generate a unique ID for an opportunity for deduplication."""
         # Prefer external_id if available
@@ -1692,6 +1954,208 @@ class Crawl4AIBackend(Backend):
             
         except Exception as e:
             logger.warning(f"Detail extraction failed for {url}: {e}")
+            return {"success": False, "error": str(e)}
+    
+    # =========================================================================
+    # Pre-flight Page Analysis Methods (Phase 1)
+    # =========================================================================
+    
+    async def _preflight_analysis(
+        self,
+        url: str,
+        session_id: str,
+        crawler: Any,
+        config: QuickModeConfig,
+        use_existing_session: bool = False,
+    ) -> dict[str, Any] | None:
+        """
+        Perform pre-flight analysis of a page BEFORE LLM extraction.
+        
+        This inspects the DOM to detect:
+        - Search forms that need interaction before showing results
+        - Pagination metadata (total records from "1-25 of 1448" text)
+        - Page type (results table, search form, error page, etc.)
+        
+        Args:
+            url: URL to analyze
+            session_id: Crawler session ID
+            crawler: AsyncWebCrawler instance
+            config: Quick mode configuration
+            use_existing_session: If True, don't navigate, just analyze current page
+            
+        Returns:
+            dict with analysis result and metadata, or None if analysis fails
+        """
+        import time
+        start_time = time.perf_counter()
+        
+        try:
+            from crawl4ai import CacheMode, CrawlerRunConfig
+            
+            if use_existing_session:
+                # Just get current page content without navigation
+                run_config = CrawlerRunConfig(
+                    session_id=session_id,
+                    cache_mode=CacheMode.BYPASS,
+                    page_timeout=self._timeout * 1000,
+                    wait_for="css:body",
+                    delay_before_return_html=1.0,
+                    js_only=True,  # Don't reload, just get current state
+                )
+            else:
+                # Navigate to URL and get content
+                run_config = CrawlerRunConfig(
+                    session_id=session_id,
+                    cache_mode=CacheMode.BYPASS,
+                    page_timeout=self._timeout * 1000,
+                    wait_for="css:body",
+                    delay_before_return_html=2.0,
+                )
+            
+            # Fetch the page (without LLM extraction - just HTML)
+            result = await crawler.arun(url=url, config=run_config)
+            
+            if not result.success or not result.html:
+                logger.warning(f"Pre-flight fetch failed: {result.error_message}")
+                return None
+            
+            # Analyze the HTML using PageAnalyzer (no LLM, just pattern matching)
+            analyzer = PageAnalyzer()
+            analysis = analyzer.analyze(result.html, url)
+            
+            analysis_ms = (time.perf_counter() - start_time) * 1000
+            
+            logger.debug(
+                f"Pre-flight analysis: type={analysis.page_type.value}, "
+                f"form={analysis.has_search_form}, results={analysis.has_results}, "
+                f"total_records={analysis.pagination.total_records}"
+            )
+            
+            return {
+                "success": True,
+                "analysis": analysis,
+                "analysis_ms": analysis_ms,
+                "html_length": len(result.html),
+            }
+            
+        except Exception as e:
+            # Sanitize error message for Windows console encoding issues
+            error_msg = str(e)
+            try:
+                error_msg.encode('cp1252')  # Test Windows encoding
+            except UnicodeEncodeError:
+                error_msg = error_msg.encode('ascii', errors='replace').decode('ascii')
+            logger.warning(f"Pre-flight analysis failed: {error_msg}")
+            return None
+    
+    async def _auto_click_search(
+        self,
+        session_id: str,
+        crawler: Any,
+        selector: str,
+    ) -> dict[str, Any]:
+        """
+        Automatically click a search button to reveal results.
+        
+        This is used when pre-flight analysis detects a search form
+        without results showing. Clicking the Search button (typically
+        with no form inputs filled) often shows all results.
+        
+        Args:
+            session_id: Crawler session ID
+            crawler: AsyncWebCrawler instance
+            selector: CSS selector for the search button
+            
+        Returns:
+            dict with success status and any error message
+        """
+        try:
+            from crawl4ai import CacheMode, CrawlerRunConfig
+            
+            # Build JavaScript to click the search button
+            # Handle various selector formats
+            js_selector = selector
+            
+            # Convert Playwright-style selectors to querySelector format
+            if ":has-text(" in selector:
+                # Extract the text to search for
+                import re
+                text_match = re.search(r":has-text\(['\"]([^'\"]+)['\"]\)", selector)
+                if text_match:
+                    search_text = text_match.group(1)
+                    # Use a more robust approach for text matching
+                    js_code = f'''
+                    (async () => {{
+                        // Find button/input with text "{search_text}"
+                        const searchText = "{search_text}".toLowerCase();
+                        const elements = document.querySelectorAll('button, input[type="submit"], a.btn, a.button');
+                        for (const el of elements) {{
+                            const text = el.textContent?.toLowerCase() || el.value?.toLowerCase() || '';
+                            if (text.includes(searchText)) {{
+                                console.log('Clicking search button:', el);
+                                el.click();
+                                await new Promise(resolve => setTimeout(resolve, 2000));
+                                return true;
+                            }}
+                        }}
+                        // Fallback: try form submit
+                        const form = document.querySelector('form');
+                        if (form) {{
+                            form.submit();
+                            await new Promise(resolve => setTimeout(resolve, 2000));
+                            return true;
+                        }}
+                        return false;
+                    }})();
+                    '''
+                else:
+                    return {"success": False, "error": "Could not parse selector text"}
+            else:
+                # Standard CSS selector
+                js_code = f'''
+                (async () => {{
+                    const button = document.querySelector("{js_selector}");
+                    if (button) {{
+                        console.log('Clicking search button:', button);
+                        button.click();
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        return true;
+                    }}
+                    // Fallback: look for any Search button
+                    const buttons = document.querySelectorAll('button, input[type="submit"]');
+                    for (const btn of buttons) {{
+                        const text = btn.textContent?.toLowerCase() || btn.value?.toLowerCase() || '';
+                        if (text.includes('search')) {{
+                            console.log('Clicking fallback search button:', btn);
+                            btn.click();
+                            await new Promise(resolve => setTimeout(resolve, 2000));
+                            return true;
+                        }}
+                    }}
+                    return false;
+                }})();
+                '''
+            
+            run_config = CrawlerRunConfig(
+                session_id=session_id,
+                cache_mode=CacheMode.BYPASS,
+                page_timeout=self._timeout * 1000,
+                js_code=js_code,
+                wait_for="js:() => true",
+                delay_before_return_html=2.5,  # Wait for results to load
+                js_only=True,  # Don't navigate, just execute JS
+            )
+            
+            result = await crawler.arun(url="about:blank", config=run_config)
+            
+            if result.success:
+                logger.info("Auto-click search succeeded")
+                return {"success": True}
+            else:
+                return {"success": False, "error": result.error_message}
+                
+        except Exception as e:
+            logger.warning(f"Auto-click search failed: {e}")
             return {"success": False, "error": str(e)}
     
     async def close(self) -> None:

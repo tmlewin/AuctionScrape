@@ -14,6 +14,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from dotenv import load_dotenv
 from rich.panel import Panel
 from rich.traceback import install as install_rich_traceback
 
@@ -33,6 +34,9 @@ try:
 except ImportError:
     pass  # python-dotenv not installed, use system env vars
 
+# Load environment variables from .env (if present)
+load_dotenv()
+
 # Install rich traceback for better error display
 install_rich_traceback(show_locals=False, width=120)
 
@@ -40,6 +44,18 @@ install_rich_traceback(show_locals=False, width=120)
 if sys.platform == "win32":
     # Enable UTF-8 mode on Windows
     os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    # Reconfigure stdout/stderr to use UTF-8 with error replacement
+    # This must happen early before any printing
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, OSError):
+            pass
+    if hasattr(sys.stderr, 'reconfigure'):
+        try:
+            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, OSError):
+            pass
 
 # Create console for output with safe encoding
 console = Console(force_terminal=True, legacy_windows=False)

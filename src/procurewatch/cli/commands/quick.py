@@ -38,9 +38,20 @@ from rich.table import Table
 # Force UTF-8 on Windows to avoid encoding issues
 if sys.platform == "win32":
     os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    # Reconfigure stdout/stderr to use UTF-8 with error replacement
+    if hasattr(sys.stdout, 'reconfigure'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, OSError):
+            pass
+    if hasattr(sys.stderr, 'reconfigure'):
+        try:
+            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, OSError):
+            pass
 
-console = Console()
-err_console = Console(stderr=True)
+console = Console(force_terminal=True)
+err_console = Console(stderr=True, force_terminal=True)
 
 app = typer.Typer(
     name="quick",
@@ -131,6 +142,11 @@ def quick_scrape(
         "--provider",
         help="LLM provider (e.g., groq/llama-3.3-70b-versatile, ollama/llama3.3)",
     ),
+    provider_prompt: bool = typer.Option(
+        False,
+        "--provider-prompt",
+        help="Interactively select LLM provider",
+    ),
     headless: bool = typer.Option(
         True,
         "--headless/--headed",
@@ -205,6 +221,7 @@ def quick_scrape(
         output=output,
         save_db=save_db,
         provider=provider,
+        provider_prompt=provider_prompt,
         headless=headless,
         delay=delay,
         retries=retries,
@@ -231,6 +248,7 @@ async def _run_quick_scrape(
     output: Path | None,
     save_db: bool,
     provider: str | None,
+    provider_prompt: bool,
     headless: bool,
     delay: int,
     retries: int,
@@ -250,7 +268,28 @@ async def _run_quick_scrape(
     console.print()
     
     # Determine effective provider early for display
-    effective_provider = provider or os.getenv("CRAWL4AI_LLM_PROVIDER", "deepseek/deepseek-chat")
+    env_provider = os.getenv("CRAWL4AI_LLM_PROVIDER", "deepseek/deepseek-chat")
+    effective_provider = provider or env_provider
+
+    if provider_prompt and not provider:
+        choices = [
+            "deepseek/deepseek-chat",
+            "groq/llama-3.3-70b-versatile",
+            "gemini/gemini-1.5-pro",
+            "openai/gpt-4o-mini",
+            "ollama/llama3.3",
+        ]
+        console.print("\n[bold]Select LLM provider:[/bold]")
+        for index, choice in enumerate(choices, 1):
+            label = "[dim] (default)[/dim]" if choice == env_provider else ""
+            console.print(f"  {index}. {choice}{label}")
+        selection = typer.prompt("Enter choice number", default="1")
+        try:
+            selection_index = int(selection) - 1
+            if 0 <= selection_index < len(choices):
+                effective_provider = choices[selection_index]
+        except ValueError:
+            pass
     
     # Build feature list for display
     features = []
@@ -320,8 +359,8 @@ async def _run_quick_scrape(
     
     # Configure LLM
     llm_config = LLMConfig.from_env()
-    if provider:
-        llm_config.provider = provider
+    if effective_provider:
+        llm_config.provider = effective_provider
     
     # Progress tracking
     with Progress(
@@ -493,12 +532,32 @@ def _display_multi_page_results(result) -> None:
     if result.detail_pages_scraped > 0:
         summary_lines.append(f"Detail pages: [cyan]{result.detail_pages_scraped}[/cyan]")
     
+    # NEW: Show pre-flight analysis metadata
+    if result.total_records_detected:
+        summary_lines.append(
+            f"Total records detected: [bold cyan]{result.total_records_detected:,}[/bold cyan]"
+        )
+        if result.records_per_page_detected:
+            estimated_pages = (result.total_records_detected + result.records_per_page_detected - 1) // result.records_per_page_detected
+            summary_lines.append(
+                f"  [dim]({result.records_per_page_detected} per page, ~{estimated_pages} pages total)[/dim]"
+            )
+    
+    if result.page_type_detected:
+        summary_lines.append(f"Page type: [cyan]{result.page_type_detected}[/cyan]")
+    
+    if result.form_auto_clicked:
+        summary_lines.append("[yellow]Search form auto-clicked[/yellow]")
+    
     summary_lines.extend([
         "",
         f"Pagination: [cyan]{result.pagination_type_detected}[/cyan]",
         f"Avg confidence: [{'green' if result.avg_confidence > 0.7 else 'yellow'}]{result.avg_confidence:.1%}[/]",
         f"Time: {result.total_elapsed_ms/1000:.1f}s",
     ])
+    
+    if result.preflight_analysis_ms > 0:
+        summary_lines.append(f"  [dim](pre-flight: {result.preflight_analysis_ms:.0f}ms)[/dim]")
     
     if result.stopped_reason:
         summary_lines.append(f"\nStopped: [dim]{result.stopped_reason}[/dim]")

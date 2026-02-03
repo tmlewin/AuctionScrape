@@ -278,32 +278,132 @@ QuickModeConfig(
 
 ## Current Session Context
 
-**Last worked on**: M4.5 - Multi-Page Quick Mode Enhancements + Extraction Robustness
+**Last worked on**: LLM Provider Troubleshooting & Configuration
 
 **Date**: 2026-02-02
 
-**Status**: ✅ M4.5 COMPLETE (Multi-Page Quick Mode working)
+**Status**: 🔄 Investigating LLM provider rate limits and authentication issues
 
 **What was done this session**:
-1. Fixed pagination JS execution by using `current_url` instead of `about:blank`
-2. Fixed JS selector quoting when the selector contains single quotes
-3. Updated LLM extraction prompts to cover contracts/bids/awards (not just tenders)
-4. Reduced LLM chunk size to fit Groq free-tier token limits
-5. Added UTF-8 console handling in test scripts to avoid Windows Unicode crashes
-6. Wrote a full usage `README.md` with examples and troubleshooting
-7. Verified multi-page extraction on Alberta (2+ pages, ~88-90% confidence)
-8. Investigated Nevada ePro: data exists but dropdown menus bloat tokens; results section is ~5k tokens
-9. Proved direct markdown-table parsing can extract 25 Nevada contracts without LLM
+1. Diagnosed rate limit errors across multiple LLM providers
+2. Updated `.env` configuration multiple times to test different providers
+3. Researched correct model names for Gemini via official LiteLLM documentation
+4. Configured Ollama as the recommended local provider for unlimited usage
 
 **Key Files Modified**:
-- `src/procurewatch/core/backends/crawl4ai_backend.py` - Pagination fixes, prompt generalized, chunk size reduced
-- `test_multipage.py` - UTF-8 console fix for Windows
-- `README.md` - Full usage guide
+- `.env` - Updated LLM provider configuration multiple times
 
-**New/Updated Test Scripts**:
-- `test_nevada.py` - Nevada ePro test with UTF-8 handling
+---
 
-**New CLI Options**:
+## LLM Provider Reference (CRITICAL - Read Before Scraping)
+
+### Provider Status Summary
+
+| Provider | Status | Limit | Error Type |
+|----------|--------|-------|------------|
+| **Groq** | ⚠️ Rate Limited | 100K tokens/day (free) | `RateLimitError` - resets at midnight UTC |
+| **DeepSeek** | ❌ Requires Payment | Pay-as-you-go | `Insufficient Balance` error |
+| **Gemini** | ⚠️ Quota Issues | Varies | `limit: 0` = quota exhausted |
+| **Ollama** | ✅ RECOMMENDED | Unlimited (local) | No API needed |
+
+### Correct Model Names (Verified from LiteLLM Docs)
+
+**Groq (FREE tier - 100K tokens/day)**:
+```
+groq/llama-3.3-70b-versatile   # Main model
+groq/llama-3.1-8b-instant      # Faster, smaller
+groq/mixtral-8x7b-32768        # Alternative
+```
+
+**Gemini (FREE tier - can hit quota quickly)**:
+```
+gemini/gemini-pro              # Basic model
+gemini/gemini-1.5-pro-latest   # Latest 1.5 Pro
+gemini/gemini-1.5-flash        # Fast, free tier
+gemini/gemini-2.0-flash        # Newest flash
+gemini/gemini-2.0-flash-exp    # Experimental
+```
+⚠️ **Note**: 404 errors mean model name is wrong OR API key hasn't activated yet. `limit: 0` means quota exhausted.
+
+**DeepSeek (Requires payment)**:
+```
+deepseek/deepseek-chat         # Main model
+```
+
+**Ollama (FREE, local, unlimited)**:
+```
+ollama/llama3.2                # Recommended for most tasks
+ollama/llama3                  # Older version
+ollama/mistral                 # Alternative
+ollama_chat/llama3.2           # Alternative format
+```
+
+### Recommended .env Configuration
+
+**Option 1: Ollama (BEST - No rate limits, no API costs)**
+```env
+# Requires: Install Ollama + run "ollama pull llama3.2"
+CRAWL4AI_LLM_PROVIDER=ollama/llama3.2
+```
+
+**Option 2: Groq (FREE but has daily limits)**
+```env
+GROQ_API_KEY=gsk_your_key_here
+CRAWL4AI_LLM_PROVIDER=groq/llama-3.3-70b-versatile
+```
+
+**Option 3: Gemini (FREE but quota can be exhausted)**
+```env
+GEMINI_API_KEY=your_key_here
+CRAWL4AI_LLM_PROVIDER=gemini/gemini-1.5-flash
+```
+
+### Ollama Setup (Recommended for Heavy Usage)
+
+**System Requirements**:
+- Any modern CPU
+- 8-16GB RAM for most models
+- GPU optional but speeds up inference significantly
+
+**Resource Usage**:
+- When not running: 0% CPU, 0 MB RAM
+- When idle (model loaded): ~0% CPU, model in VRAM
+- Models unload after 5 min inactivity
+- Does NOT run in background when closed
+
+**Installation**:
+```bash
+# 1. Download from https://ollama.ai/download
+
+# 2. Pull a model
+ollama pull llama3.2
+
+# 3. Test it works
+ollama run llama3.2 "Hello"
+
+# 4. Use with ProcureWatch
+python -m procurewatch.cli.main quick scrape <url> --provider ollama/llama3.2
+```
+
+### Troubleshooting LLM Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `RateLimitError` (Groq) | Hit 100K tokens/day | Wait for midnight UTC reset OR use Ollama |
+| `Insufficient Balance` (DeepSeek) | No credits | Add funds OR use Ollama |
+| `404 Not Found` (Gemini) | Wrong model name OR key not activated | Wait 10 min OR try `gemini/gemini-pro` |
+| `limit: 0` (Gemini) | Quota exhausted | Wait 24h OR use Ollama |
+| `Authentication Fails` | Invalid/expired API key | Regenerate key on provider dashboard |
+
+---
+
+**Previous Session (2026-02-02)**:
+1. Added markdown-table fallback parsing when LLM output is empty
+2. Added `--provider-prompt` to Quick Scrape for interactive provider selection
+3. Auto-loaded `.env` in CLI startup
+4. Verified Nevada ePro multi-page extraction (3 pages, 26 opportunities)
+
+**CLI Options**:
 ```bash
 # Pagination
 --max-pages N, -p N       # Maximum pages to scrape
@@ -328,31 +428,33 @@ QuickModeConfig(
 --delay MS                # Delay between pages
 --retries N               # Retry attempts
 --stop-on-error           # Stop on first error
-```
 
-**Environment Setup (.env)**:
-```env
-GROQ_API_KEY=gsk_xxx...  # FREE, working
-CRAWL4AI_LLM_PROVIDER=groq/llama-3.3-70b-versatile
+# Provider Selection
+--provider PROVIDER       # e.g., ollama/llama3.2, groq/llama-3.3-70b-versatile
+--provider-prompt         # Interactive provider selection
 ```
 
 **Working Test Command**:
 ```bash
-python test_multipage.py  # Test multi-page extraction (UTF-8 safe)
-python test_nevada.py     # Nevada ePro test (UTF-8 safe)
-python test_groq.py       # Single-page test (bypasses Windows Unicode issues)
+# With Ollama (recommended)
+python -m procurewatch.cli.main quick scrape "https://nevadaepro.com/bso/view/search/external/advancedSearchContractBlanket.xhtml?view=activeContracts" --max-pages 3
+
+# With specific provider
+python -m procurewatch.cli.main quick scrape <url> --provider ollama/llama3.2 --max-pages 3
 ```
 
 **Known Issues / Findings**:
-- Windows Rich progress spinners can crash the CLI with Unicode errors; test scripts include UTF-8 fixes
-- Nevada ePro results are behind large dropdown menus; raw markdown exceeds Groq free-tier limit
-- The results table is present and extractable; a targeted table/Results-section parser is a good fallback
+- Windows Rich progress spinners can crash with Unicode errors; test scripts include UTF-8 fixes
+- Groq free tier: 100K tokens/day - good for ~50-100 page extractions
+- DeepSeek requires payment - no free tier
+- Gemini free tier can exhaust quickly; `limit: 0` error means quota gone
+- Ollama is the most reliable option for heavy usage (no limits, no API costs)
 
 **Next Steps (User to decide)**:
-1. Implement results-table extraction fallback for dropdown-heavy pages (Nevada ePro)
-2. Fix Windows CLI Unicode crash in `procurewatch init`
-3. M5: Export & Polish (CSV/JSON export, dashboards)
-4. Add URL parameter-based pagination
+1. Install Ollama for unlimited local AI (recommended for user's RTX 5090 setup)
+2. M5: Export & Polish (CSV/JSON export, dashboards)
+3. Add provider fallback mechanism (try Ollama → Groq → Gemini automatically)
+4. Add pre-flight provider auth check to fail fast on bad keys
 
 ---
 
